@@ -1,0 +1,15 @@
+import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
+import {transpileModule,ModuleKind} from 'typescript';
+import assert from 'node:assert/strict';
+const base='http://127.0.0.1:5173';
+const auth=await fetch(base+'/signin-with-chatgpt?return_to=/',{redirect:'manual'});
+const cookie=auth.headers.get('set-cookie').split(';')[0];
+const nativeFetch=globalThis.fetch;
+const data=await(await nativeFetch(base+'/api/manage',{headers:{cookie}})).json();
+globalThis.fetch=(url)=>nativeFetch(base+url,{headers:{cookie}});
+const source=readFileSync('app/dashboard.tsx','utf8').split('async function fullBackup')[1];
+const moduleCode=transpileModule('function day(){return "test";} function downloadBlob(blob){globalThis.testBackupBlob=blob;} async function fullBackup'+source+'\nexport {fullBackup,crc32};',{compilerOptions:{module:ModuleKind.ESNext,target:99}}).outputText;
+const {fullBackup,crc32}=await import('data:text/javascript;base64,'+Buffer.from(moduleCode).toString('base64'));
+assert.equal(crc32(new TextEncoder().encode('123456789')),0xcbf43926);
+await fullBackup(data);mkdirSync('outputs',{recursive:true});writeFileSync('outputs/test-backup.zip',Buffer.from(await globalThis.testBackupBlob.arrayBuffer()));
+console.log('Backup generated, CRC32 passed, files:',data.documents.length);

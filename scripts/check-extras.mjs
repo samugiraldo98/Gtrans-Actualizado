@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import ts from 'typescript';
+import {DatabaseSync} from 'node:sqlite';
+fs.mkdirSync('.sites-runtime',{recursive:true});
+const compile=(path,out,replace=s=>s)=>fs.writeFileSync('.sites-runtime/'+out,ts.transpileModule(replace(fs.readFileSync(path,'utf8')),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
+compile('app/finance.ts','finance.mjs');compile('app/money-input.ts','money.mjs');compile('app/api/manage/corrections.ts','corrections.mjs');
+compile('app/api/manage/route.ts','route.mjs',s=>s.replace("import { env } from 'cloudflare:workers';",'const env=globalThis.testEnv;').replace("import { getGtransUser } from '../../gtrans-auth';",'const getGtransUser=async()=>({userId:"owner"});').replace("from './corrections'","from './corrections.mjs'"));
+const db=new DatabaseSync(':memory:');for(const f of fs.readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort())db.exec(fs.readFileSync('drizzle/'+f,'utf8').replaceAll('--> statement-breakpoint',''));
+const adapter={prepare(sql){const stmt=db.prepare(sql);return {bind(...args){return {first:async()=>stmt.get(...args),all:async()=>({results:stmt.all(...args)}),run:async()=>({meta:{changes:stmt.run(...args).changes}})};}};},batch:async stmts=>{db.exec('BEGIN');try{const r=[];for(const stmt of stmts)r.push(await stmt.run());db.exec('COMMIT');return r;}catch(e){db.exec('ROLLBACK');throw e;}}};
+globalThis.testEnv={DB:adapter,BUCKET:{}};const {POST}=await import('../.sites-runtime/route.mjs');const {correctRecord}=await import('../.sites-runtime/corrections.mjs');const {balances,monthly}=await import('../.sites-runtime/finance.mjs');const {formatMoneyInput}=await import('../.sites-runtime/money.mjs');
+assert.equal(formatMoneyInput('1000000'),"1'000.000");assert.equal(formatMoneyInput('123456'), '123.456');assert.equal(formatMoneyInput("12'345.678"),"12'345.678");assert.equal(formatMoneyInput(''), '');
+const id=crypto.randomUUID(),vehicleId=crypto.randomUUID(),detail={status:'Contratado',price:1000,expenses:100,dispatchDate:'2026-10-08',vehicles:[{id:vehicleId,cost:600}]};
+db.prepare('INSERT INTO clients (id,owner,data,version,created) VALUES (?,?,?,?,?)').run(id,'owner',JSON.stringify(detail),1,'2026-10-08');
+const post=async body=>POST(new Request('http://localhost/api/manage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}));
+const extra={action:'payment',clientId:id,vehicleId,kind:'Extra',amount:800,date:'2026-10-08',reference:'Desvío por cierre de vía'};
+assert.equal((await post(extra)).status,400);db.prepare('INSERT INTO orders (id,owner,client_id,snapshot,created) VALUES (?,?,?,?,?)').run(crypto.randomUUID(),'owner',id,JSON.stringify(detail),'2026-10-08');assert.equal((await post({...extra,reference:''})).status,400);assert.equal((await post({...extra,vehicleId:'unknown'})).status,400);
+const r=await post(extra);assert.equal(r.status,200);const paymentId=(await r.json()).id;assert.equal((await post({...extra,kind:'Saldo',amount:600,reference:'Saldo pactado'})).status,200);assert.equal((await post({...extra,kind:'Anticipo',amount:1})).status,400);
+const data={clients:[{id,data:detail}],orders:[],payments:db.prepare('SELECT * FROM payments').all(),documents:[]};assert.equal(balances(data)[0].profit,-500);assert.equal(balances(data)[0].payable,0);assert.equal(monthly(data,'2026-10').paid,1400);
+const correction={action:'edit-payment',id:paymentId,version:1,amount:900,date:'2026-10-08',reference:'Desvío y peaje adicional',reason:'Ajuste del recibo'};assert.equal((await correctRecord(correction,{db:adapter,bucket:{},owner:'owner'},'2026-10-08')).status,200);assert.equal(db.prepare('SELECT COUNT(*) n FROM payment_revisions').get().n,1);assert.equal((await correctRecord(correction,{db:adapter,bucket:{},owner:'owner'},'2026-10-08')).status,409);
+console.log('Verificados: formato monetario, extra solo con orden y justificación, pérdida, saldo original, caja y corrección con historial/concurrencia.');
+

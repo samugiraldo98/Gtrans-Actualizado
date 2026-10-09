@@ -1,0 +1,1 @@
+ALTER TABLE `clients` ADD `deleted_at` text;

@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+const base='http://127.0.0.1:5173';
+const auth=await fetch(base+'/signin-with-chatgpt?return_to=/',{redirect:'manual'});
+const oldCookie=auth.headers.get('set-cookie')?.split(';')[0];
+assert.equal((await fetch(base+'/api/manage',{headers:{cookie:oldCookie}})).status,401,'ChatGPT identity cannot authorize APIs in Google mode');
+const page=await fetch(base+'/');assert.equal(page.status,200);assert.ok((await page.text()).includes('Iniciar sesión con Google'));
+const start=await fetch(base+'/api/auth/google/start',{redirect:'manual'});assert.equal(start.status,302);const google=new URL(start.headers.get('location'));assert.equal(google.origin,'https://accounts.google.com');assert.equal(google.searchParams.get('redirect_uri'),base+'/api/auth/google/callback');const flowCookie=start.headers.get('set-cookie')?.split(';')[0];assert.ok(flowCookie);
+const failed=await fetch(base+'/api/auth/google/callback?code=fake&state=wrong',{headers:{cookie:flowCookie},redirect:'manual'});assert.equal(failed.status,303);assert.equal(failed.headers.get('location'),base+'/?login=failed');assert.ok(failed.headers.get('set-cookie').includes('Max-Age=0'));
+assert.equal((await fetch(base+'/api/manage?file=00000000-0000-4000-8000-000000000000',{headers:{cookie:flowCookie}})).status,401,'An OAuth flow cookie is not a session');
+assert.equal((await fetch(base+'/api/auth/google/logout',{method:'POST',headers:{Origin:'https://other.example.com'},redirect:'manual'})).status,403);
+const logout=await fetch(base+'/api/auth/google/logout',{method:'POST',headers:{Origin:base},redirect:'manual'});assert.equal(logout.status,303);assert.ok(logout.headers.get('set-cookie').includes('Max-Age=0'));
+console.log('PASS: Google login page, OAuth redirect/cookie, rejected state, API/document authorization, ignored ChatGPT identity in Google mode, and logout origin validation. No real Google credentials used.');

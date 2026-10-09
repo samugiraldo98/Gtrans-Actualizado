@@ -1,0 +1,12 @@
+export type Vehicle = {id:string; carrierId:string; type:string; plate:string; cost:number; weight?:number; loadingRate?:number};
+export type ClientData = {name:string;phone:string;document:string;origin:string;originLocation:string;destination:string;destinationLocation:string;house:string;weight:number;dimensions:string;price:number;status:'Cotización'|'Contratado'|'No contratado';dispatchDate:string;notes:string;rejection:string;expenses:number;vehicles:Vehicle[];serviceType?:'Transporte'|'Cargue';cypres?:boolean;loadingRate?:number};
+export type Client = {id:string;customer_id:string|null;data:ClientData;version:number;created:string;deleted_at:string|null};
+export type CarrierData = {name:string;phone:string;document:string;details:string};
+export type Carrier = {id:string;data:CarrierData;created:string;deleted_at:string|null;version:number};
+export type Order = {id:string;sequence:number;client_id:string;snapshot:ClientData & {carriers:Carrier[]};created:string};
+export type Payment = {id:string;client_id:string;vehicle_id:string|null;kind:'Cliente'|'Cypres'|'Anticipo'|'Saldo'|'Extra';amount:number;date:string;reference:string;created:string;version:number};
+export type Doc = {id:string;client_id:string;payment_id:string|null;category:string;name:string;mime:string;size:number;created:string;delete_requested_at:string|null};
+export type PaymentRevision = {id:string;payment_id:string;before:Payment;after:Payment;reason:string;created:string};
+export type ExpenseConcept = {id:string;name:string;created:string};
+export type LedgerEntry = {id:string;kind:'Gasto'|'Retiro';concept_id:string;amount:number;date:string;reference:string;created:string;file_name:string|null;file_mime:string|null;file_size:number};
+export type Data = {clients:Client[];carriers:Carrier[];orders:Order[];payments:Payment[];documents:Doc[];paymentRevisions:PaymentRevision[];concepts?:ExpenseConcept[];ledger?:LedgerEntry[]};
